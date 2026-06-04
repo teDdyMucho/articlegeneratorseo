@@ -1,6 +1,9 @@
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Copy } from 'lucide-react';
+import { X, Copy, Send, ImagePlus } from 'lucide-react';
 import { Article } from '../data/types';
+import { postToBuildHawk } from '../services/webhooks';
+import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 interface ContentModalProps {
@@ -9,11 +12,56 @@ interface ContentModalProps {
 }
 
 export default function ContentModal({ article, onClose }: ContentModalProps) {
+  const [posting, setPosting] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!article) return null;
+
+  const isBuildHawk = article.business_name?.toLowerCase() === 'buildhawk';
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(article.content);
     toast.success('Content copied to clipboard');
+  };
+
+  const handlePost = async () => {
+    setPosting(true);
+    try {
+      let imageUrl: string | undefined;
+
+      if (imageFile) {
+        const ext = imageFile.name.split('.').pop();
+        const path = `articles/${article.id}-${Date.now()}.${ext}`;
+        const { error: uploadError } = await supabase.storage
+          .from('buildhawk-images')
+          .upload(path, imageFile, { upsert: true });
+        if (uploadError) throw new Error(`Image upload failed: ${uploadError.message}`);
+        const { data: urlData } = supabase.storage.from('buildhawk-images').getPublicUrl(path);
+        imageUrl = urlData.publicUrl;
+      }
+
+      await postToBuildHawk({ id: article.id, title: article.title, content: article.content, imageUrl });
+      toast.success('Article posted to BuildHawk');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to post to BuildHawk');
+    } finally {
+      setPosting(false);
+    }
   };
 
   return (
@@ -79,6 +127,54 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
                 })}
               </div>
             </div>
+
+            {isBuildHawk && (
+              <div className="px-6 py-4 border-t border-gray-100 flex flex-col gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageSelect}
+                  className="hidden"
+                  id="bh-image-upload"
+                />
+
+                {imagePreview ? (
+                  <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                    <img src={imagePreview} alt="Selected" className="w-full h-36 object-cover" />
+                    <button
+                      onClick={removeImage}
+                      className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <label
+                    htmlFor="bh-image-upload"
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 text-sm cursor-pointer hover:border-orange-300 hover:text-orange-400 transition-colors"
+                  >
+                    <ImagePlus size={15} />
+                    Add featured image (optional)
+                  </label>
+                )}
+
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handlePost}
+                  disabled={posting}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {posting ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Send size={15} />
+                  )}
+                  {posting ? 'Posting…' : 'Post to BuildHawk'}
+                </motion.button>
+              </div>
+            )}
           </motion.div>
         </div>
       )}
