@@ -84,7 +84,7 @@ export default function ContentModal({ article, onArticleUpdated, onClose }: Con
       setStep(null);
     }
   };
-
+//
   const handleDeleteRequest = () => setConfirmingDelete(true);
   const handleDeleteCancel = () => setConfirmingDelete(false);
 
