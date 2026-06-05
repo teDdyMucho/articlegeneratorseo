@@ -4,22 +4,20 @@ import { X, Copy, Send, ImagePlus, CheckCircle, Trash2, AlertTriangle } from 'lu
 import { Article } from '../data/types';
 import { postToBuildHawk, deletePostedBuildHawkArticle } from '../services/webhooks';
 import { supabase } from '../lib/supabase';
+import { updateArticle } from '../services/supabase';
 import toast from 'react-hot-toast';
 
 interface ContentModalProps {
   article: Article | null;
-  isPosted: boolean;
-  onPosted: (id: number) => void;
-  onUnposted: (id: number) => void;
+  onArticleUpdated: (updated: Article) => void;
   onClose: () => void;
 }
 
 type ProcessStep = 'uploading-image' | 'posting' | 'deleting' | null;
 
-export default function ContentModal({ article, isPosted, onPosted, onUnposted, onClose }: ContentModalProps) {
+export default function ContentModal({ article, onArticleUpdated, onClose }: ContentModalProps) {
   const [step, setStep] = useState<ProcessStep>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  // image state is intentionally local — resets on each article open via key prop
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -27,6 +25,8 @@ export default function ContentModal({ article, isPosted, onPosted, onUnposted, 
   if (!article) return null;
 
   const isBuildHawk = article.business_name?.toLowerCase() === 'buildhawk';
+  const isPosted = article.postlabel === 'posted';
+  const savedImage = article.imagebucketlink ?? null;
   const busy = step !== null;
 
   const stepLabel: Record<NonNullable<ProcessStep>, string> = {
@@ -71,7 +71,12 @@ export default function ContentModal({ article, isPosted, onPosted, onUnposted, 
 
       setStep('posting');
       await postToBuildHawk({ id: article.id, title: article.title, content: article.content, imageUrl });
-      onPosted(article.id);
+
+      const updated = await updateArticle(article.id, {
+        postlabel: 'posted',
+        imagebucketlink: imageUrl ?? null,
+      });
+      onArticleUpdated(updated);
       toast.success('Article posted to BuildHawk');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to post to BuildHawk');
@@ -88,7 +93,12 @@ export default function ContentModal({ article, isPosted, onPosted, onUnposted, 
     setStep('deleting');
     try {
       await deletePostedBuildHawkArticle({ id: article.id, title: article.title, content: article.content });
-      onUnposted(article.id);
+
+      const updated = await updateArticle(article.id, {
+        postlabel: null,
+        imagebucketlink: null,
+      });
+      onArticleUpdated(updated);
       toast.success('Article deleted from BuildHawk');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete from BuildHawk');
@@ -180,7 +190,15 @@ export default function ContentModal({ article, isPosted, onPosted, onUnposted, 
 
             {isBuildHawk && (
               <div className="px-6 py-4 border-t border-gray-100 flex flex-col gap-3">
-                {/* Image upload — hidden once posted */}
+
+                {/* Show saved image if already posted with one */}
+                {isPosted && savedImage && (
+                  <div className="rounded-xl overflow-hidden border border-gray-200">
+                    <img src={savedImage} alt="Featured" className="w-full h-36 object-cover" />
+                  </div>
+                )}
+
+                {/* Image upload — only when not yet posted */}
                 {!isPosted && (
                   <>
                     <input
@@ -215,7 +233,7 @@ export default function ContentModal({ article, isPosted, onPosted, onUnposted, 
                   </>
                 )}
 
-                {/* Post button → Already Posted once done */}
+                {/* Post / Already Posted button */}
                 <motion.button
                   whileHover={!busy && !isPosted ? { scale: 1.02 } : {}}
                   whileTap={!busy && !isPosted ? { scale: 0.98 } : {}}
@@ -240,7 +258,7 @@ export default function ContentModal({ article, isPosted, onPosted, onUnposted, 
                   )}
                 </motion.button>
 
-                {/* Delete button — only shown after successful post */}
+                {/* Delete button */}
                 {isPosted && !confirmingDelete && (
                   <motion.button
                     initial={{ opacity: 0, y: 6 }}

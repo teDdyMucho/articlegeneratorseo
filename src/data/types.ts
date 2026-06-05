@@ -14,6 +14,8 @@ export interface Article {
   research: string;
   addkeyword: string;
   generalize: string;
+  postlabel: string | null;
+  imagebucketlink: string | null;
 }
 
 export interface CreateArticlePayload {

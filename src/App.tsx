@@ -22,7 +22,6 @@ export default function App() {
   const [businesses, setBusinesses] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [contentArticle, setContentArticle] = useState<Article | null>(null);
-  const [postedArticleIds, setPostedArticleIds] = useState<Set<number>>(new Set());
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [loadingActions, setLoadingActions] = useState<Map<number, string>>(new Map());
@@ -258,9 +257,10 @@ export default function App() {
       <ContentModal
         key={contentArticle?.id ?? 'none'}
         article={contentArticle}
-        isPosted={contentArticle ? postedArticleIds.has(contentArticle.id) : false}
-        onPosted={(id) => setPostedArticleIds(prev => new Set(prev).add(id))}
-        onUnposted={(id) => setPostedArticleIds(prev => { const next = new Set(prev); next.delete(id); return next; })}
+        onArticleUpdated={(updated) => {
+          setArticles(prev => prev.map(a => a.id === updated.id ? updated : a));
+          setContentArticle(updated);
+        }}
         onClose={() => setContentArticle(null)}
       />
 
