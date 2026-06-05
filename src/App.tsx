@@ -11,15 +11,18 @@ import RewriteOptionsModal, { RewriteOptions } from './components/RewriteOptions
 import DeleteConfirmModal from './components/DeleteConfirmModal';
 import { Article } from './data/types';
 import { createArticle, writeArticle, rewriteArticle, generalizeArticle } from './services/webhooks';
-import { fetchArticles, deleteArticle as deleteArticleDb } from './services/supabase';
+import { fetchArticles, deleteArticle as deleteArticleDb, fetchBusinessNames } from './services/supabase';
 
 export default function App() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [businessFilter, setBusinessFilter] = useState('All');
+  const [businesses, setBusinesses] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [contentArticle, setContentArticle] = useState<Article | null>(null);
+  const [postedArticleIds, setPostedArticleIds] = useState<Set<number>>(new Set());
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [loadingActions, setLoadingActions] = useState<Map<number, string>>(new Map());
@@ -33,6 +36,7 @@ export default function App() {
 
   useEffect(() => {
     loadArticles();
+    fetchBusinessNames().then(setBusinesses).catch(() => {});
   }, []);
 
   const loadArticles = async () => {
@@ -55,9 +59,10 @@ export default function App() {
         (article.business_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (article.keyword ?? '').toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === 'All' || article.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesBusiness = businessFilter === 'All' || article.business_name === businessFilter;
+      return matchesSearch && matchesStatus && matchesBusiness;
     });
-  }, [articles, searchQuery, statusFilter]);
+  }, [articles, searchQuery, statusFilter, businessFilter]);
 
   const handleToggleSelect = useCallback((id: number) => {
     setSelectedIds(prev => {
@@ -222,6 +227,9 @@ export default function App() {
           onSearchChange={setSearchQuery}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
+          businessFilter={businessFilter}
+          onBusinessFilterChange={setBusinessFilter}
+          businesses={businesses}
         />
 
         {loading ? (
@@ -247,7 +255,14 @@ export default function App() {
         )}
       </main>
 
-      <ContentModal article={contentArticle} onClose={() => setContentArticle(null)} />
+      <ContentModal
+        key={contentArticle?.id ?? 'none'}
+        article={contentArticle}
+        isPosted={contentArticle ? postedArticleIds.has(contentArticle.id) : false}
+        onPosted={(id) => setPostedArticleIds(prev => new Set(prev).add(id))}
+        onUnposted={(id) => setPostedArticleIds(prev => { const next = new Set(prev); next.delete(id); return next; })}
+        onClose={() => setContentArticle(null)}
+      />
 
       <CreateArticleModal
         isOpen={showCreateModal}

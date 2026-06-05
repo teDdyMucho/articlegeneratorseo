@@ -3,7 +3,7 @@ import { CreateArticlePayload, WritePayload, RewritePayload, GeneralizePayload }
 
 const WEBHOOK_BASE = 'https://primary-production-6722.up.railway.app/webhook';
 
-const TIMEOUT = 15000;
+const TIMEOUT = 600000;
 
 // Strip metadata sections (Meta Title, Meta Description, Alternate Titles) that
 // appear after the article body, then format the remaining content using the
@@ -31,6 +31,16 @@ export async function postToBuildHawk(article: { id: number; title: string; cont
   const response = await axios.post(
     `${WEBHOOK_BASE}/postarticletobuildhawk`,
     { articleId: String(article.id), title: article.title, content },
+    { timeout: TIMEOUT }
+  );
+  return response.data;
+}
+
+export async function deletePostedBuildHawkArticle(article: { id: number; title: string; content: string }) {
+  const body = formatArticleBody(article.content);
+  const response = await axios.post(
+    `${WEBHOOK_BASE}/delete-posted-article-from-github-buildhawk`,
+    { articleId: String(article.id), title: article.title, content: body },
     { timeout: TIMEOUT }
   );
   return response.data;

@@ -1,18 +1,25 @@
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Copy, Send, ImagePlus } from 'lucide-react';
+import { X, Copy, Send, ImagePlus, CheckCircle, Trash2, AlertTriangle } from 'lucide-react';
 import { Article } from '../data/types';
-import { postToBuildHawk } from '../services/webhooks';
+import { postToBuildHawk, deletePostedBuildHawkArticle } from '../services/webhooks';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 interface ContentModalProps {
   article: Article | null;
+  isPosted: boolean;
+  onPosted: (id: number) => void;
+  onUnposted: (id: number) => void;
   onClose: () => void;
 }
 
-export default function ContentModal({ article, onClose }: ContentModalProps) {
-  const [posting, setPosting] = useState(false);
+type ProcessStep = 'uploading-image' | 'posting' | 'deleting' | null;
+
+export default function ContentModal({ article, isPosted, onPosted, onUnposted, onClose }: ContentModalProps) {
+  const [step, setStep] = useState<ProcessStep>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // image state is intentionally local — resets on each article open via key prop
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -20,6 +27,13 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
   if (!article) return null;
 
   const isBuildHawk = article.business_name?.toLowerCase() === 'buildhawk';
+  const busy = step !== null;
+
+  const stepLabel: Record<NonNullable<ProcessStep>, string> = {
+    'uploading-image': 'Uploading image…',
+    'posting': 'Posting to BuildHawk…',
+    'deleting': 'Deleting from BuildHawk…',
+  };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -40,11 +54,11 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
   };
 
   const handlePost = async () => {
-    setPosting(true);
     try {
       let imageUrl: string | undefined;
 
       if (imageFile) {
+        setStep('uploading-image');
         const ext = imageFile.name.split('.').pop();
         const path = `articles/${article.id}-${Date.now()}.${ext}`;
         const { error: uploadError } = await supabase.storage
@@ -55,12 +69,31 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
         imageUrl = urlData.publicUrl;
       }
 
+      setStep('posting');
       await postToBuildHawk({ id: article.id, title: article.title, content: article.content, imageUrl });
+      onPosted(article.id);
       toast.success('Article posted to BuildHawk');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to post to BuildHawk');
     } finally {
-      setPosting(false);
+      setStep(null);
+    }
+  };
+
+  const handleDeleteRequest = () => setConfirmingDelete(true);
+  const handleDeleteCancel = () => setConfirmingDelete(false);
+
+  const handleDeleteConfirm = async () => {
+    setConfirmingDelete(false);
+    setStep('deleting');
+    try {
+      await deletePostedBuildHawkArticle({ id: article.id, title: article.title, content: article.content });
+      onUnposted(article.id);
+      toast.success('Article deleted from BuildHawk');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete from BuildHawk');
+    } finally {
+      setStep(null);
     }
   };
 
@@ -73,7 +106,7 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={onClose}
+            onClick={busy ? undefined : onClose}
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -82,6 +115,21 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             className="relative w-full max-w-2xl max-h-[80vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
           >
+            {/* Loading overlay */}
+            <AnimatePresence>
+              {busy && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4 rounded-3xl"
+                >
+                  <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-sm font-semibold text-gray-600">{step ? stepLabel[step] : ''}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
                 <h2 className="text-lg font-bold text-gray-800">{article.title}</h2>
@@ -92,7 +140,8 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={handleCopy}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200 transition-colors"
+                  disabled={busy}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Copy size={14} />
                   Copy
@@ -100,8 +149,9 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={onClose}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition-colors"
+                  onClick={busy ? undefined : onClose}
+                  disabled={busy}
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <X size={16} />
                 </motion.button>
@@ -130,49 +180,111 @@ export default function ContentModal({ article, onClose }: ContentModalProps) {
 
             {isBuildHawk && (
               <div className="px-6 py-4 border-t border-gray-100 flex flex-col gap-3">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageSelect}
-                  className="hidden"
-                  id="bh-image-upload"
-                />
-
-                {imagePreview ? (
-                  <div className="relative rounded-xl overflow-hidden border border-gray-200">
-                    <img src={imagePreview} alt="Selected" className="w-full h-36 object-cover" />
-                    <button
-                      onClick={removeImage}
-                      className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ) : (
-                  <label
-                    htmlFor="bh-image-upload"
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 text-sm cursor-pointer hover:border-orange-300 hover:text-orange-400 transition-colors"
-                  >
-                    <ImagePlus size={15} />
-                    Add featured image (optional)
-                  </label>
+                {/* Image upload — hidden once posted */}
+                {!isPosted && (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                      id="bh-image-upload"
+                      disabled={busy}
+                    />
+                    {imagePreview ? (
+                      <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                        <img src={imagePreview} alt="Selected" className="w-full h-36 object-cover" />
+                        <button
+                          onClick={removeImage}
+                          disabled={busy}
+                          className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors disabled:opacity-50"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <label
+                        htmlFor={busy ? undefined : 'bh-image-upload'}
+                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed text-sm transition-colors ${busy ? 'border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-200 text-gray-400 cursor-pointer hover:border-orange-300 hover:text-orange-400'}`}
+                      >
+                        <ImagePlus size={15} />
+                        Add featured image (optional)
+                      </label>
+                    )}
+                  </>
                 )}
 
+                {/* Post button → Already Posted once done */}
                 <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handlePost}
-                  disabled={posting}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  whileHover={!busy && !isPosted ? { scale: 1.02 } : {}}
+                  whileTap={!busy && !isPosted ? { scale: 0.98 } : {}}
+                  onClick={!busy && !isPosted ? handlePost : undefined}
+                  disabled={busy || isPosted}
+                  className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-colors disabled:cursor-not-allowed ${
+                    isPosted
+                      ? 'bg-green-100 text-green-600'
+                      : 'bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-60'
+                  }`}
                 >
-                  {posting ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  {isPosted ? (
+                    <>
+                      <CheckCircle size={15} />
+                      Already Posted
+                    </>
                   ) : (
-                    <Send size={15} />
+                    <>
+                      <Send size={15} />
+                      Post to BuildHawk
+                    </>
                   )}
-                  {posting ? 'Posting…' : 'Post to BuildHawk'}
                 </motion.button>
+
+                {/* Delete button — only shown after successful post */}
+                {isPosted && !confirmingDelete && (
+                  <motion.button
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    whileHover={!busy ? { scale: 1.02 } : {}}
+                    whileTap={!busy ? { scale: 0.98 } : {}}
+                    onClick={!busy ? handleDeleteRequest : undefined}
+                    disabled={busy}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 font-semibold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 size={15} />
+                    Delete from BuildHawk
+                  </motion.button>
+                )}
+
+                {/* Delete confirmation */}
+                {isPosted && confirmingDelete && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-xl border border-red-200 bg-red-50 p-4 flex flex-col gap-3"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle size={16} className="text-red-500 mt-0.5 shrink-0" />
+                      <p className="text-sm text-red-700 font-medium">
+                        Are you sure you want to delete this article from BuildHawk? This cannot be undone.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDeleteCancel}
+                        className="flex-1 px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleDeleteConfirm}
+                        className="flex-1 px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
+                      >
+                        Yes, Delete
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
               </div>
             )}
           </motion.div>

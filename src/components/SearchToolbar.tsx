@@ -1,4 +1,4 @@
-import { Search, Tag, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { Search, Tag, SlidersHorizontal, ChevronDown, Building2 } from 'lucide-react';
 import { useState } from 'react';
 
 interface SearchToolbarProps {
@@ -6,6 +6,9 @@ interface SearchToolbarProps {
   onSearchChange: (query: string) => void;
   statusFilter: string;
   onStatusFilterChange: (status: string) => void;
+  businessFilter: string;
+  onBusinessFilterChange: (business: string) => void;
+  businesses: string[];
 }
 
 export default function SearchToolbar({
@@ -13,8 +16,12 @@ export default function SearchToolbar({
   onSearchChange,
   statusFilter,
   onStatusFilterChange,
+  businessFilter,
+  onBusinessFilterChange,
+  businesses,
 }: SearchToolbarProps) {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showBusinessDropdown, setShowBusinessDropdown] = useState(false);
 
   const statuses = ['All', 'completed', 'processing', 'new'];
 
@@ -31,7 +38,7 @@ export default function SearchToolbar({
         />
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <button className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors">
           <Tag size={14} />
           <span className="hidden sm:inline">Manage Tag</span>
@@ -42,10 +49,55 @@ export default function SearchToolbar({
           <span className="hidden sm:inline">Filter</span>
         </button>
 
+        {/* Business filter */}
+        <div className="relative">
+          <button
+            onClick={() => setShowBusinessDropdown(!showBusinessDropdown)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl border text-sm transition-colors ${
+              businessFilter !== 'All'
+                ? 'border-blue-400 bg-blue-50 text-blue-600 font-medium'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <Building2 size={14} />
+            <span className="hidden sm:inline max-w-[120px] truncate">
+              {businessFilter === 'All' ? 'Business' : businessFilter}
+            </span>
+            <ChevronDown size={14} />
+          </button>
+
+          {showBusinessDropdown && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setShowBusinessDropdown(false)} />
+              <div className="absolute right-0 mt-1 w-52 bg-white rounded-xl border border-gray-200 shadow-lg z-20 py-1 max-h-64 overflow-y-auto">
+                {['All', ...businesses].map(b => (
+                  <button
+                    key={b}
+                    onClick={() => {
+                      onBusinessFilterChange(b);
+                      setShowBusinessDropdown(false);
+                    }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition-colors truncate ${
+                      businessFilter === b ? 'text-blue-600 font-medium' : 'text-gray-600'
+                    }`}
+                  >
+                    {b}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Status filter */}
         <div className="relative">
           <button
             onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl border text-sm transition-colors ${
+              statusFilter !== 'All'
+                ? 'border-blue-400 bg-blue-50 text-blue-600 font-medium'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
           >
             <span className="capitalize">{statusFilter === 'All' ? 'Status' : statusFilter}</span>
             <ChevronDown size={14} />

@@ -1,6 +1,16 @@
 import { supabase } from '../lib/supabase';
 import { Article } from '../data/types';
 
+export async function fetchBusinessNames(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('Research')
+    .select('business_name')
+    .order('business_name', { ascending: true });
+  if (error) throw error;
+  const unique = [...new Set((data ?? []).map((r: { business_name: string }) => r.business_name).filter(Boolean))];
+  return unique;
+}
+
 export async function fetchArticles(): Promise<Article[]> {
   const { data, error } = await supabase
     .from('Research')
