@@ -36,6 +36,16 @@ export async function postToBuildHawk(article: { id: number; title: string; cont
   return response.data;
 }
 
+export async function generateArticleImage(article: { id: number; title: string; content: string }): Promise<Blob> {
+  const body = formatArticleBody(article.content);
+  const response = await axios.post(
+    `${WEBHOOK_BASE}/sample-article-generate-image`,
+    { articleId: String(article.id), title: article.title, content: body },
+    { timeout: TIMEOUT, responseType: 'blob' }
+  );
+  return response.data;
+}
+
 export async function deletePostedBuildHawkArticle(article: { id: number; title: string; content: string }) {
   const body = formatArticleBody(article.content);
   const response = await axios.post(

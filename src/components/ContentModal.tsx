@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Copy, Send, ImagePlus, CheckCircle, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Copy, Send, ImagePlus, CheckCircle, Trash2, AlertTriangle, Sparkles } from 'lucide-react';
 import { Article } from '../data/types';
-import { postToBuildHawk, deletePostedBuildHawkArticle } from '../services/webhooks';
+import { postToBuildHawk, deletePostedBuildHawkArticle, generateArticleImage } from '../services/webhooks';
 import { supabase } from '../lib/supabase';
 import { updateArticle } from '../services/supabase';
 import toast from 'react-hot-toast';
@@ -13,7 +13,7 @@ interface ContentModalProps {
   onClose: () => void;
 }
 
-type ProcessStep = 'uploading-image' | 'posting' | 'deleting' | null;
+type ProcessStep = 'uploading-image' | 'posting' | 'deleting' | 'generating-image' | null;
 
 export default function ContentModal({ article, onArticleUpdated, onClose }: ContentModalProps) {
   const [step, setStep] = useState<ProcessStep>(null);
@@ -33,6 +33,7 @@ export default function ContentModal({ article, onArticleUpdated, onClose }: Con
     'uploading-image': 'Uploading image…',
     'posting': 'Posting to BuildHawk…',
     'deleting': 'Deleting from BuildHawk…',
+    'generating-image': 'Generating image…',
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -51,6 +52,28 @@ export default function ContentModal({ article, onArticleUpdated, onClose }: Con
   const handleCopy = () => {
     navigator.clipboard.writeText(article.content);
     toast.success('Content copied to clipboard');
+  };
+
+  const handleGenerateImage = async () => {
+    setStep('generating-image');
+    try {
+      const blob = await generateArticleImage({ id: article.id, title: article.title, content: article.content });
+      const ext = blob.type.split('/')[1] || 'png';
+      const path = `articles/${article.id}-generated-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from('buildhawk-images')
+        .upload(path, blob, { upsert: true, contentType: blob.type || 'image/png' });
+      if (uploadError) throw new Error(`Image upload failed: ${uploadError.message}`);
+      const { data: urlData } = supabase.storage.from('buildhawk-images').getPublicUrl(path);
+
+      const updated = await updateArticle(article.id, { imagebucketlink: urlData.publicUrl });
+      onArticleUpdated(updated);
+      toast.success('Image generated and saved');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to generate image');
+    } finally {
+      setStep(null);
+    }
   };
 
   const handlePost = async () => {
@@ -188,15 +211,27 @@ export default function ContentModal({ article, onArticleUpdated, onClose }: Con
               </div>
             </div>
 
+            {/* Generate image — available for every business */}
+            <div className="px-6 py-4 border-t border-gray-100 flex flex-col gap-3">
+              {savedImage && (
+                <div className="rounded-xl overflow-hidden border border-gray-200">
+                  <img src={savedImage} alt="Generated" className="w-full h-36 object-cover" />
+                </div>
+              )}
+              <motion.button
+                whileHover={!busy ? { scale: 1.02 } : {}}
+                whileTap={!busy ? { scale: 0.98 } : {}}
+                onClick={!busy ? handleGenerateImage : undefined}
+                disabled={busy}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed border-purple-200 text-purple-500 text-sm font-medium hover:border-purple-300 hover:bg-purple-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Sparkles size={15} />
+                {savedImage ? 'Regenerate Image' : 'Generate Image'}
+              </motion.button>
+            </div>
+
             {isBuildHawk && (
               <div className="px-6 py-4 border-t border-gray-100 flex flex-col gap-3">
-
-                {/* Show saved image if already posted with one */}
-                {isPosted && savedImage && (
-                  <div className="rounded-xl overflow-hidden border border-gray-200">
-                    <img src={savedImage} alt="Featured" className="w-full h-36 object-cover" />
-                  </div>
-                )}
 
                 {/* Image upload — only when not yet posted */}
                 {!isPosted && (
