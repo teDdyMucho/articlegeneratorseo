@@ -12,8 +12,11 @@ import DeleteConfirmModal from './components/DeleteConfirmModal';
 import { Article } from './data/types';
 import { createArticle, writeArticle, rewriteArticle, generalizeArticle } from './services/webhooks';
 import { fetchArticles, deleteArticle as deleteArticleDb, fetchBusinessNames } from './services/supabase';
+import { useAuth } from './contexts/AuthContext';
+import Login from './components/Login';
 
 export default function App() {
+  const { session, loading: authLoading, signOut } = useAuth();
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,9 +37,10 @@ export default function App() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
+    if (!session) return;
     loadArticles();
     fetchBusinessNames().then(setBusinesses).catch(() => {});
-  }, []);
+  }, [session]);
 
   const loadArticles = async () => {
     try {
@@ -201,6 +205,18 @@ export default function App() {
     toast.success('Dashboard refreshed');
   }, []);
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#050816] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Login />;
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <Toaster
@@ -216,7 +232,7 @@ export default function App() {
         }}
       />
 
-      <Navbar onCreateClick={() => setShowCreateModal(true)} onRefresh={handleRefresh} />
+      <Navbar onCreateClick={() => setShowCreateModal(true)} onRefresh={handleRefresh} onSignOut={signOut} />
 
       <main className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         <StatsCards articles={articles} />
