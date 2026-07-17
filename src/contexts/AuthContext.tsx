@@ -1,44 +1,38 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { createContext, useContext, useState, ReactNode } from 'react';
+
+const VALID_EMAIL = 'ongoing44444@gmail.com';
+const VALID_PASSWORD = 'Ongoing2025!';
+const STORAGE_KEY = 'auth_logged_in';
 
 interface AuthContextValue {
-  session: Session | null;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signOut: () => Promise<void>;
+  isAuthenticated: boolean;
+  signIn: (email: string, password: string) => { error: string | null };
+  signOut: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => localStorage.getItem(STORAGE_KEY) === 'true'
+  );
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
-
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+  const signIn = (email: string, password: string) => {
+    if (email === VALID_EMAIL && password === VALID_PASSWORD) {
+      localStorage.setItem(STORAGE_KEY, 'true');
+      setIsAuthenticated(true);
+      return { error: null };
+    }
+    return { error: 'Invalid email or password' };
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const signOut = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setIsAuthenticated(false);
   };
 
   return (
-    <AuthContext.Provider value={{ session, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ isAuthenticated, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
